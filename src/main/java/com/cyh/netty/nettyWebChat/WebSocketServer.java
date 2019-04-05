@@ -55,7 +55,7 @@ public class WebSocketServer {
 	private UpdateHistoryMsgToRedis updateHistoryMsgToRedis;
 
 	public WebSocketServer(){
-		System.out.println("NettyWebChat服务正在初始化。。。");
+//		System.out.println("NettyWebChat服务正在初始化。。。");
 	}
 
 	public void run() {
@@ -101,7 +101,7 @@ public class WebSocketServer {
 						   .childOption(ChannelOption.RCVBUF_ALLOCATOR, new FixedRecvByteBufAllocator(592048))
 						   .childHandler(childChannelHandler);
 			
-			System.out.println("NettyWebChat服务启动成功！");
+			CommonUtil.print("NettyWebChat服务启动成功！");
 			channelFuture = serverBootstrap.bind(port).sync();
 			channelFuture.channel().closeFuture().sync();
 		} catch (Exception e) {
@@ -145,7 +145,7 @@ public class WebSocketServer {
 			zookeezperUtil.zkNodeCache();
 			zookeezperUtil.zkPathChildrenCache();
 		}catch (Exception e){
-			System.out.println("webSocket程序连接Zookeeper服务失败！！");
+			CommonUtil.print("webSocket程序连接Zookeeper服务失败！");
 		}
 
 	}

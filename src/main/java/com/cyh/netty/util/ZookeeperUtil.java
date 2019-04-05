@@ -1,7 +1,6 @@
 package com.cyh.netty.util;
 
 import com.alibaba.fastjson.JSON;
-import com.cyh.netty.constant.Constant;
 import com.cyh.netty.nettyWebChat.BaseWebSocketServerHandler;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -84,7 +83,7 @@ public class ZookeeperUtil {
         try {
             client.inTransaction().create().withMode(CreateMode.PERSISTENT).withACL(acls).forPath(PATH,data).and().commit();
         } catch (Exception e) {
-            System.out.println("["+CommonUtil.DateToString(new Date(),"yyyy-MM-dd HH:mm:ss")+"] 节点创建失败!");
+            CommonUtil.print("节点创建失败!");
             e.printStackTrace();
         }
     }
@@ -194,9 +193,9 @@ public class ZookeeperUtil {
                 @Override
                 public void nodeChanged() throws Exception {
                     ChildData childData = nodeCache.getCurrentData();
-                    System.out.println("ZNode节点状态改变, path={}"+ childData.getPath());
-                    System.out.println("ZNode节点数据改变, data={}"+ new String(childData.getData(), "Utf-8"));
-                    System.out.println("ZNode节点状态改变, stat={}"+ childData.getStat());
+                    CommonUtil.print("ZNode节点状态改变, path={}"+ childData.getPath());
+                    CommonUtil.print("ZNode节点数据改变, data={}"+ new String(childData.getData(), "Utf-8"));
+                    CommonUtil.print("ZNode节点状态改变, stat={}"+ childData.getStat());
                 }
             };
             nodeCache.getListenable().addListener(ncl);
@@ -220,7 +219,7 @@ public class ZookeeperUtil {
                         Jedis jedis = null;
                         switch (event.getType()) {
                             case CHILD_ADDED:
-                                System.out.println("有用户上线, path={}, data={}"+data.getPath()+ ",该节点数据为："+ new String(data.getData(), "UTF-8"));
+                                CommonUtil.print("有用户上线, path={}, data={}"+data.getPath()+ ",该节点数据为："+ new String(data.getData(), "UTF-8"));
                                 try {
                                 	jedis = redisDB.getJedis();
                                     jedis.select(redisDB.dbSelectedForSystem);
@@ -250,10 +249,10 @@ public class ZookeeperUtil {
 								}
                                 break;
                             case CHILD_UPDATED:
-                                System.out.println("子节点更新, path={}, data={}"+data.getPath()+ ",该节点数据为："+ new String(data.getData(), "UTF-8"));
+                                CommonUtil.print("子节点更新, path={}, data={}"+data.getPath()+ ",该节点数据为："+ new String(data.getData(), "UTF-8"));
                                 break;
                             case CHILD_REMOVED:
-                                System.out.println("有用户下线，子节点删除, path={}, data={}"+data.getPath()+ ",该节点数据为："+new String(data.getData(), "UTF-8"));
+                                CommonUtil.print("有用户下线，子节点删除, path={}, data={}"+data.getPath()+ ",该节点数据为："+new String(data.getData(), "UTF-8"));
                                 try {
                                 	jedis = redisDB.getJedis();
                                     jedis.select(redisDB.dbSelectedForSystem);
@@ -287,7 +286,7 @@ public class ZookeeperUtil {
                         }
                         //打印最新联系人列表
                         for (Map<String, Object> ttt : CommonUtil.contactsList) {
-    						System.out.println("["+CommonUtil.DateToString(new Date(),Constant.DATE_FORMAT)+"]name:"+ttt.get("name")+"-----nickName:"+ttt.get("nickName")+"-----isOnline:"+ttt.get("isOnline"));
+                            CommonUtil.print("name:"+ttt.get("name")+"-----nickName:"+ttt.get("nickName")+"-----isOnline:"+ttt.get("isOnline"));
     					}
                         } catch (Exception e) {
                         e.printStackTrace();

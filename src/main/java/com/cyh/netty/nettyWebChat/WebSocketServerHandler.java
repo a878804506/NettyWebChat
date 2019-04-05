@@ -2,8 +2,8 @@ package com.cyh.netty.nettyWebChat;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
-import com.cyh.netty.constant.Constant;
-import com.cyh.netty.entity.OneToOneMessage;
+import com.cyh.netty.constant.ConstantValue;
+import com.cyh.netty.entity.webChat.OneToOneMessage;
 import com.cyh.netty.util.CommonUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -48,7 +48,7 @@ public class WebSocketServerHandler extends BaseWebSocketServerHandler {
 			if (ctx.equals(CommonUtil.pushCtxMap.get(key))) {
 				// 从连接池内剔除
 				CommonUtil.pushCtxMap.remove(key);
-				System.out.println("下线用户id:" + key + ",在线用户数:"+CommonUtil.pushCtxMap.size());
+				CommonUtil.print("下线用户id:" + key + ",在线用户数:"+CommonUtil.pushCtxMap.size());
 			}
 		}
 	}
@@ -93,11 +93,11 @@ public class WebSocketServerHandler extends BaseWebSocketServerHandler {
         
         // 客服端发送过来的消息
  		String request = ((TextWebSocketFrame) frame).text();
- 		System.out.println("服务端收到：" + request);
+		CommonUtil.print("服务端收到：" + request);
  		JSONObject jsonObject = null;
  		try {
  			jsonObject = JSONObject.parseObject(request);
- 			System.out.println(jsonObject.toJSONString());
+			CommonUtil.print(jsonObject.toJSONString());
  		} catch (Exception e) {
  			e.printStackTrace();
  		}
@@ -123,14 +123,14 @@ public class WebSocketServerHandler extends BaseWebSocketServerHandler {
             oneToOneMessage.setFrom(Integer.valueOf(jsonObject.get("from").toString()));
             oneToOneMessage.setTo(Integer.valueOf(jsonObject.get("to").toString()));
             oneToOneMessage.setData(jsonObject.get("data").toString());
-            oneToOneMessage.setDate(CommonUtil.DateToString(new Date(),Constant.DATE_FORMAT));
+            oneToOneMessage.setDate(CommonUtil.DateToString(new Date(),ConstantValue.DATE_FORMAT));
             switch (msgType){
                 case "0":  //文本消息
                 case "1":  //表情消息
                     if(CommonUtil.pushCtxMap.containsKey(oneToOneMessage.getTo().toString())) {//找到目标用户
                         push(CommonUtil.pushCtxMap.get(oneToOneMessage.getTo().toString()),JSON.toJSONString(oneToOneMessage));
                     }else {//不在线
-                        System.out.println("消息发送的目标用户不在线！");
+						CommonUtil.print("消息发送的目标用户不在线！");
                     }
                     //加入未读集合
 					CommonUtil.addunreadHistoryMessage(oneToOneMessage);
@@ -197,7 +197,7 @@ public class WebSocketServerHandler extends BaseWebSocketServerHandler {
         Map<String, List<String>> paramList = decoder.parameters();
         String msg = "";
         for (Map.Entry<String, List<String>> entry : paramList.entrySet()) {
-            System.out.println(entry.getKey()+"----------------"+entry.getValue().get(0));
+			CommonUtil.print(entry.getKey()+"----------------"+entry.getValue().get(0));
             msg = entry.getValue().get(0);
         }
         
@@ -223,7 +223,7 @@ public class WebSocketServerHandler extends BaseWebSocketServerHandler {
 			String sessionId = (String) jsonObject.get("id");
 			String userId = (String)jsonObject.get("userId").toString();
 			//先不写
-			System.out.println("当客户端连接成功，上线用户id为："+userId);
+			CommonUtil.print("客户端连接成功，上线用户id为："+userId);
 			push(ctx, "服务器收到并返回：连接成功！@！@！@！@");
 			//websocket连接校验  结束
 			
@@ -234,7 +234,7 @@ public class WebSocketServerHandler extends BaseWebSocketServerHandler {
 			try {
 				handshaker.handshake(ctx.channel(), req);
 			}catch (Exception e){
-				System.out.println("异常连接，过滤。。");
+				CommonUtil.print("异常连接，过滤。。");
 			}
 
 			Map<String,Object> systemMsg = new HashMap<>();

@@ -1,6 +1,6 @@
 package com.cyh.netty.util;
 
-import com.cyh.netty.entity.OneToOneMessage;
+import com.cyh.netty.entity.webChat.OneToOneMessage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import redis.clients.jedis.Jedis;

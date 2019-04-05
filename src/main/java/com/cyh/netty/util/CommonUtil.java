@@ -1,6 +1,7 @@
 package com.cyh.netty.util;
 
-import com.cyh.netty.entity.OneToOneMessage;
+import com.cyh.netty.constant.ConstantValue;
+import com.cyh.netty.entity.webChat.OneToOneMessage;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
@@ -14,6 +15,14 @@ import java.util.concurrent.ConcurrentHashMap;
  *  公共静态方法 工具类
  */
 public class CommonUtil {
+
+    public static void print(String message){
+        System.out.println("["+returnDateStr()+"] "+message);
+    }
+
+    public static String returnDateStr(){
+        return new SimpleDateFormat(ConstantValue.DATE_FORMAT).format(new Date());
+    }
 
     /**
      *

@@ -1,4 +1,4 @@
-package com.cyh.netty.entity;
+package com.cyh.netty.entity.webChat;
 
 import java.io.Serializable;
 
