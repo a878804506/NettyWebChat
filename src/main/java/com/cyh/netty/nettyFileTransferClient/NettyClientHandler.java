@@ -2,7 +2,6 @@ package com.cyh.netty.nettyFileTransferClient;
 
 import com.cyh.netty.entity.fileTransfer.NettyFileProtocol;
 import com.cyh.netty.util.CommonUtil;
-import com.cyh.netty.util.SerializeUtil;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -25,6 +24,9 @@ public class NettyClientHandler extends ChannelInboundHandlerAdapter {
     @Autowired
     private NettyClient nettyClient;
 
+    // 每次向服务器发送的心跳包
+    private static final NettyFileProtocol nfp = new NettyFileProtocol(1,-1,1,1,1,null,false);
+
     /**
      * 建立连接成功
      */
@@ -40,8 +42,8 @@ public class NettyClientHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
         CommonUtil.print("关闭连接");
-        final EventLoop eventLoop = ctx.channel().eventLoop();
-        nettyClient.doConnect(new Bootstrap(), eventLoop);
+        final EventLoop nftb = ctx.channel().eventLoop();
+        nettyClient.doConnect(nftb);
         super.channelInactive(ctx);
     }
 
@@ -57,9 +59,8 @@ public class NettyClientHandler extends ChannelInboundHandlerAdapter {
                 CommonUtil.print("READER_IDLE");
             } else if (event.state().equals(IdleState.WRITER_IDLE)) {
                 /**发送心跳,保持长连接*/
-                NettyFileProtocol nfp = new NettyFileProtocol(1,-1,1,1,1,null,false);
                 ctx.channel().writeAndFlush(nfp);
-                CommonUtil.print("心跳发送成功!");
+//                CommonUtil.print("心跳发送成功!");
             } else if (event.state().equals(IdleState.ALL_IDLE)) {
                 CommonUtil.print("ALL_IDLE");
             }
@@ -72,7 +73,6 @@ public class NettyClientHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         if(msg instanceof NettyFileProtocol){
-            CommonUtil.print("NettyFileProtocol类型的数据!" + msg.toString());
             NettyFileProtocol nfp = (NettyFileProtocol) msg;
             switch(nfp.getContentType()){
                 case -1: //收到服务器的心跳回复

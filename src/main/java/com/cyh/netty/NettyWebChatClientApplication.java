@@ -1,5 +1,6 @@
 package com.cyh.netty;
 
+import com.cyh.netty.nettyFileTransferClient.NettyClient;
 import com.cyh.netty.nettyWebChat.WebSocketServer;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -14,11 +15,12 @@ public class NettyWebChatClientApplication {
 	public static void main(String[] args) {
 		ConfigurableApplicationContext applicationContext = SpringApplication.run(NettyWebChatClientApplication.class, args);
 
-//		String[] beanDefinitionNames = applicationContext.getBeanDefinitionNames();
-//		for (String name : beanDefinitionNames)
-//			System.out.println(name);
+		// 启动webChat服务
+		WebSocketServer wss = applicationContext.getBean(WebSocketServer.class);
+		new Thread(wss).start();
 
-		WebSocketServer nettyWebChatIOC = applicationContext.getBean(WebSocketServer.class);
-		nettyWebChatIOC.run();
+		// 启动netty文件传输客户端
+		NettyClient nc = applicationContext.getBean(NettyClient.class);
+		new Thread(nc).start();
 	}
 }

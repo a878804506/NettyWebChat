@@ -17,7 +17,7 @@ import java.util.Set;
  * 启动服务
  * */
 @Component
-public class WebSocketServer {
+public class WebSocketServer implements Runnable{
 
 	//用于客户端连接请求
 	@Qualifier("nettyWebChatBoss")
@@ -58,6 +58,7 @@ public class WebSocketServer {
 //		System.out.println("NettyWebChat服务正在初始化。。。");
 	}
 
+	@Override
 	public void run() {
 		Jedis jedis = null;
 		try {
