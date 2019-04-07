@@ -25,7 +25,7 @@ public class NettyClientHandler extends ChannelInboundHandlerAdapter {
     private NettyClient nettyClient;
 
     // 每次向服务器发送的心跳包
-    private static final NettyFileProtocol nfp = new NettyFileProtocol(1,-1,1,1,1,null,false);
+    private static final NettyFileProtocol nfp = new NettyFileProtocol(1,-1,1,1,1,null,1,null,false);
 
     /**
      * 建立连接成功

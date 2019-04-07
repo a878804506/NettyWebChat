@@ -99,7 +99,7 @@ public class WebSocketServer implements Runnable{
 						   .option(ChannelOption.SO_BACKLOG, 1024)
 						   .option(ChannelOption.TCP_NODELAY, true)
 						   .childOption(ChannelOption.SO_KEEPALIVE, true)
-						   .childOption(ChannelOption.RCVBUF_ALLOCATOR, new FixedRecvByteBufAllocator(592048))
+						   .childOption(ChannelOption.RCVBUF_ALLOCATOR, new AdaptiveRecvByteBufAllocator())
 						   .childHandler(childChannelHandler);
 			
 			CommonUtil.print("NettyWebChat服务启动成功！");

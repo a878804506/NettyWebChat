@@ -34,6 +34,8 @@ public class NettyClient implements Runnable{
     /**唯一标记 */
     private boolean initFalg=true;
 
+    public ChannelFuture channelFuture;
+
     /**
      * Netty创建全部都是实现自AbstractBootstrap。 客户端的是Bootstrap，服务端的则是 ServerBootstrap。
      **/
@@ -46,7 +48,6 @@ public class NettyClient implements Runnable{
      * 重连
      */
     public void doConnect( EventLoopGroup eventLoopGroup) {
-        ChannelFuture f = null;
         Bootstrap bootstrap = new Bootstrap();
         try {
             if (bootstrap != null) {
@@ -55,7 +56,7 @@ public class NettyClient implements Runnable{
                 bootstrap.option(ChannelOption.SO_KEEPALIVE, true);
                 bootstrap.handler(nettyClientFilter);
                 bootstrap.remoteAddress(host, port);
-                f = bootstrap.connect().addListener((ChannelFuture futureListener) -> {
+                channelFuture = bootstrap.connect().addListener((ChannelFuture futureListener) -> {
                     final EventLoop eventLoop = futureListener.channel().eventLoop();
                     if (!futureListener.isSuccess()) {
                         CommonUtil.print("与服务端断开连接!在10s之后准备尝试重连!");
@@ -67,7 +68,7 @@ public class NettyClient implements Runnable{
                     initFalg=false;
                 }
                 // 阻塞
-                f.channel().closeFuture().sync();
+                channelFuture.channel().closeFuture().sync();
             }
         } catch (Exception e) {
             CommonUtil.print("Netty文件传输客户端连接失败!!"+e.getMessage());

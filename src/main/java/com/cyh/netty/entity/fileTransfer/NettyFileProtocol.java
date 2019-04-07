@@ -28,19 +28,25 @@ public class NettyFileProtocol implements java.io.Serializable{
     private long time;
     //消息的内容
     private byte[] content;
+    //随机数
+    private int uuNum;
+    //文件后缀
+    private String fileExt;
     //结果
     private boolean result;
 
     public NettyFileProtocol() {
     }
 
-    public NettyFileProtocol(int contentLength, int contentType, int fronUserId, int toUserId, long time, byte[] content,boolean result) {
+    public NettyFileProtocol(int contentLength, int contentType, int fronUserId, int toUserId, long time, byte[] content,int uuNum,String fileExt,boolean result) {
         this.contentLength = contentLength;
         this.contentType = contentType;
         this.fronUserId = fronUserId;
         this.toUserId = toUserId;
         this.time = time;
         this.content = content;
+        this.uuNum = uuNum;
+        this.fileExt = fileExt;
         this.result = result;
     }
 
@@ -108,6 +114,22 @@ public class NettyFileProtocol implements java.io.Serializable{
         this.result = result;
     }
 
+    public int getUuNum() {
+        return uuNum;
+    }
+
+    public void setUuNum(int uuNum) {
+        this.uuNum = uuNum;
+    }
+
+    public String getFileExt() {
+        return fileExt;
+    }
+
+    public void setFileExt(String fileExt) {
+        this.fileExt = fileExt;
+    }
+
     @Override
     public String toString() {
         return "NettyFileProtocol{" +
@@ -118,6 +140,8 @@ public class NettyFileProtocol implements java.io.Serializable{
                 ", toUserId=" + toUserId +
                 ", time=" + time +
                 ", content=" + Arrays.toString(content) +
+                ", uuNum=" + uuNum +
+                ", fileExt='" + fileExt + '\'' +
                 ", result=" + result +
                 '}';
     }

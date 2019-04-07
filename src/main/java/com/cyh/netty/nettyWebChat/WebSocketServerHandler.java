@@ -1,9 +1,12 @@
 package com.cyh.netty.nettyWebChat;
 
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.cyh.netty.constant.ConstantValue;
+import com.cyh.netty.entity.fileTransfer.NettyFileProtocol;
 import com.cyh.netty.entity.webChat.OneToOneMessage;
+import com.cyh.netty.nettyFileTransferClient.NettyClient;
 import com.cyh.netty.util.CommonUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -14,8 +17,12 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.websocketx.*;
 import io.netty.util.CharsetUtil;
+import org.apache.commons.lang3.ArrayUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.nio.ByteBuffer;
 import java.util.*;
 
 /**
@@ -28,7 +35,18 @@ import java.util.*;
 public class WebSocketServerHandler extends BaseWebSocketServerHandler {
 
 	private WebSocketServerHandshaker handshaker;
-	
+
+	//文件中转集合
+	private static Map<String,byte[]>  bufTransfer = new HashMap<>();
+	// byte[] 数据集合
+	private List<byte[]> tempByteBuf = new ArrayList<>();
+
+	@Autowired
+	private NettyClient nettyClient;
+
+	@Value("${nginx.staticMessageFilePath}")
+	public String staticMessageFilePath ;
+
 	/**
 	 * 当客户端连接成功，返回个成功信息
 	 */
@@ -80,109 +98,183 @@ public class WebSocketServerHandler extends BaseWebSocketServerHandler {
 			ctx.channel().write(new PongWebSocketFrame(frame.content().retain()));
 			return;
 		}
-		// 只支持文本格式，不支持二进制消息
-		if (!(frame instanceof TextWebSocketFrame)) {
-			throw new Exception("仅支持文本格式");
-		}
-		/**
-         * 本例程仅支持文本消息，不支持二进制消息
-         */
+		String request = null;
+		JSONObject jsonObject = null;
         if (frame instanceof BinaryWebSocketFrame) {
-            throw new UnsupportedOperationException(String.format("%s frame types not supported", frame.getClass().getName()));
-        }
-        
-        // 客服端发送过来的消息
- 		String request = ((TextWebSocketFrame) frame).text();
-		CommonUtil.print("服务端收到：" + request);
- 		JSONObject jsonObject = null;
- 		try {
- 			jsonObject = JSONObject.parseObject(request);
-			CommonUtil.print(jsonObject.toJSONString());
- 		} catch (Exception e) {
- 			e.printStackTrace();
- 		}
- 		if (jsonObject == null) {
- 			return;
- 		}
- 		
-        if(frame instanceof TextWebSocketFrame){
-            // 返回应答消息
-        	Map<String,Object> systemMsg = new HashMap<>();
+			// 如果是二进制的文件消息，就先把文件流保存起来，在告诉客户端保存好了，进入了文件发送状态
+			ByteBuf content = frame.content();
+			byte[] bytes = new byte[content.readableBytes()];
+			content.readBytes(bytes);
+			CommonUtil.print("BinaryWebSocketFrame接收到的数据为"+bytes.length);
+			if (!frame.isFinalFragment()) {
+				// 临时接收
+				tempByteBuf.add(bytes);
+				return;
+			}
+			// 只需要一次发送二进制文件就可以发送完成 ，说明此次数据包比较小
+			CommonUtil.print("ContinuationWebSocketFrame接收到的最终数据为+++++++++"+bytes.length);
+			String fileKey = UUID.randomUUID().toString();
+			CommonUtil.print("接收到客户端发来的数据包大小："+bytes.length);
+			bufTransfer.put(fileKey,bytes);
+			Map<String,Object> fileStruts = new HashMap<>();
+			fileStruts.put("id", "7");
+			fileStruts.put("type", 7);
+			fileStruts.put("stauts", true);
+			fileStruts.put("fileKey", fileKey); //fileKey 是暂时保存在内存中的文件流的key
+			ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(fileStruts)));
+			return;
+
+        }else if(frame instanceof ContinuationWebSocketFrame){
+			ByteBuf content = frame.content();
+			byte[] bytes = new byte[content.readableBytes()];
+			content.readBytes(bytes);
+			CommonUtil.print("ContinuationWebSocketFrame接收到的数据为"+bytes.length);
+			// 临时接收
+			tempByteBuf.add(bytes);
+			if (!frame.isFinalFragment()) {
+				return;
+			}
+			//合并为一个byte[]
+			byte[] allBytes = new byte[0];
+			for (byte[] _bytes:tempByteBuf) {
+				allBytes = ArrayUtils.addAll(allBytes,_bytes);
+			}
+
+			CommonUtil.print("清理前，byte集合为："+tempByteBuf.size()+"个");
+			tempByteBuf.clear();
+			CommonUtil.print("ContinuationWebSocketFrame接收到的最终数据为+++++++++"+allBytes.length);
+			String fileKey = UUID.randomUUID().toString();
+			CommonUtil.print("接收到客户端发来的数据包大小："+allBytes.length);
+			bufTransfer.put(fileKey,allBytes);
+			Map<String,Object> fileStruts = new HashMap<>();
+			fileStruts.put("id", "7");
+			fileStruts.put("type", 7);
+			fileStruts.put("stauts", true);
+			fileStruts.put("fileKey", fileKey); //fileKey 是暂时保存在内存中的文件流的key
+			ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(fileStruts)));
+			return;
+		}else if(frame instanceof TextWebSocketFrame) {
+			// 客服端发送过来的消息
+			request = ((TextWebSocketFrame) frame).text();
+			try {
+				jsonObject = JSONObject.parseObject(request);
+				CommonUtil.print(jsonObject.toJSONString());
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			if (jsonObject == null) {
+				return;
+			}
+			// 返回应答消息
+			Map<String, Object> systemMsg = new HashMap<>();
 			systemMsg.put("id", "system");
 			systemMsg.put("type", -1);
-			systemMsg.put("data", "服务器收到并返回了你发送的JSON："+request);
+			systemMsg.put("data", "服务器收到并返回了你发送的JSON：" + request);
 			ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(systemMsg)));
-        }
-        // 消息类型
-        String type = jsonObject.get("type").toString();
-        if("2".equals(type)) {  //JSON定义type=2 ----> 一对一聊天
-            String msgType = jsonObject.get("msgType").toString();
-            OneToOneMessage oneToOneMessage = new OneToOneMessage();
-            oneToOneMessage.setId(jsonObject.get("id").toString());
-            oneToOneMessage.setMsgType(msgType);
-            oneToOneMessage.setFrom(Integer.valueOf(jsonObject.get("from").toString()));
-            oneToOneMessage.setTo(Integer.valueOf(jsonObject.get("to").toString()));
-            oneToOneMessage.setData(jsonObject.get("data").toString());
-            oneToOneMessage.setDate(CommonUtil.DateToString(new Date(),ConstantValue.DATE_FORMAT));
-            switch (msgType){
-                case "0":  //文本消息
-                case "1":  //表情消息
-                    if(CommonUtil.pushCtxMap.containsKey(oneToOneMessage.getTo().toString())) {//找到目标用户
-                        push(CommonUtil.pushCtxMap.get(oneToOneMessage.getTo().toString()),JSON.toJSONString(oneToOneMessage));
-                    }else {//不在线
-						CommonUtil.print("消息发送的目标用户不在线！");
-                    }
-                    //加入未读集合
-					CommonUtil.addunreadHistoryMessage(oneToOneMessage);
-                    //加入聊天历史集合
-					CommonUtil.addAllHistoryMessage(oneToOneMessage);
-                    break;
-                case "2": //图片消息
-//					String isSuccess = CommonUtil.uploadPicToFTP(oneToOneMessage); //此处用字符串返回 如果为“false” 则上传失败，如果为文件名字，则成功
-//					System.out.println(isSuccess);
-					if("false".equals("")){
-						// 发送失败就告知发送者 发送失败
 
-					}else{
-						//  发送成功就告知发送者发送成功，并且将图片消息发送到目标用户
+			/**
+			 * 聊天业务逻辑处理开始
+			 */
+			String type = jsonObject.get("type").toString();// 消息类型
+			if ("2".equals(type)) {  //JSON定义type=2 ----> 一对一聊天
+				String msgType = jsonObject.get("msgType").toString();
+				OneToOneMessage oneToOneMessage = new OneToOneMessage();
+				oneToOneMessage.setId(jsonObject.get("id").toString());
+				oneToOneMessage.setMsgType(msgType);
+				oneToOneMessage.setFrom(Integer.valueOf(jsonObject.get("from").toString()));
+				oneToOneMessage.setTo(Integer.valueOf(jsonObject.get("to").toString()));
+				oneToOneMessage.setDate(CommonUtil.DateToString(new Date(), ConstantValue.DATE_FORMAT));
+				switch (msgType) {
+					case "0":  //文本消息
+					case "1":  //表情消息
+						oneToOneMessage.setData(jsonObject.get("data").toString());
+						if (CommonUtil.pushCtxMap.containsKey(oneToOneMessage.getTo().toString())) {//找到目标用户
+							push(CommonUtil.pushCtxMap.get(oneToOneMessage.getTo().toString()), JSON.toJSONString(oneToOneMessage));
+						} else {//不在线
+							CommonUtil.print("消息发送的目标用户不在线！");
+						}
+						//加入未读集合
+						CommonUtil.addunreadHistoryMessage(oneToOneMessage);
+						//加入聊天历史集合
+						CommonUtil.addAllHistoryMessage(oneToOneMessage);
+						break;
+					case "2": //图片消息
+						Map<String, Object> sendPicStruts = new HashMap<>();
+						try {
+							String fileName = jsonObject.get("id").toString();
+							String fileKey = jsonObject.get("fileKey").toString();
+							JSONArray data = (JSONArray) jsonObject.get("data");
+							byte[] fileSource = bufTransfer.get(fileKey);
+							CommonUtil.print("即将发送的数据包大小为：" + fileSource.length);
+							NettyFileProtocol nfp = new NettyFileProtocol(fileSource.length, 2,
+									Integer.valueOf(data.get(0).toString()), Integer.valueOf(data.get(1).toString()), (Long)data.get(2),
+									fileSource, Integer.valueOf((int)data.get(3)), data.get(4).toString(), false);
+							nettyClient.channelFuture.channel().writeAndFlush(nfp);
+							// 清空缓存中的数据 释放内存
+							bufTransfer.remove(fileKey);
+							sendPicStruts.put("id", data.get(3).toString());
+							sendPicStruts.put("type", 8);
+							sendPicStruts.put("sendPicStruts", true);
+							sendPicStruts.put("sendPicAddress", staticMessageFilePath+fileName);
 
-					}
-                    break;
-            }
-        }else if("3".equals(type)) { //客户端要求拉取一对一聊天记录
-        	List<OneToOneMessage> list = new LinkedList<>();
-        	if("0".equals(jsonObject.get("msgDate").toString())) {  //只拉取最近三天的一对一聊天记录
-         		// 获取 key
-         		String oneToOneMessageKey = CommonUtil.getOneToOneMessageKey(Integer.valueOf(jsonObject.get("from").toString()),Integer.valueOf(jsonObject.get("to").toString()));
-         		//聊天记录
-         		if(CommonUtil.allHistoryMessage.containsKey(oneToOneMessageKey)) {
-					list = CommonUtil.allHistoryMessage.get(oneToOneMessageKey);
+							// 发给目标用户
+							oneToOneMessage.setData(staticMessageFilePath+fileName); // 发送给目标用户的是ngixn静态文件服务器上的图片地址
+							if (CommonUtil.pushCtxMap.containsKey(oneToOneMessage.getTo().toString())) {//找到目标用户
+								push(CommonUtil.pushCtxMap.get(oneToOneMessage.getTo().toString()), JSON.toJSONString(oneToOneMessage));
+							} else {//不在线
+								CommonUtil.print("消息发送的目标用户不在线！");
+							}
+							//加入未读集合
+							CommonUtil.addunreadHistoryMessage(oneToOneMessage);
+							//加入聊天历史集合
+							CommonUtil.addAllHistoryMessage(oneToOneMessage);
+						} catch (Exception e) {
+							e.printStackTrace();
+							sendPicStruts.put("sendPicStruts", false);
+							sendPicStruts.put("sendPicAddress", null);
+						}finally {
+							ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(sendPicStruts)));
+						}
+						break;
 				}
-        	}else { //全部记录
-        		// 巴拉巴拉。。。。。。。。。。。
-        		
-        	}
-        	//置为0条未读消息
-			CommonUtil.unreadHistoryMessage.put(CommonUtil.getOneToOneUnReadMessageKey(Integer.valueOf(jsonObject.get("to").toString()),Integer.valueOf(jsonObject.get("from").toString())),0);
+			} else if ("3".equals(type)) { //客户端要求拉取一对一聊天记录
+				List<OneToOneMessage> list = new LinkedList<>();
+				if ("0".equals(jsonObject.get("msgDate").toString())) {  //只拉取最近三天的一对一聊天记录
+					// 获取 key
+					String oneToOneMessageKey = CommonUtil.getOneToOneMessageKey(Integer.valueOf(jsonObject.get("from").toString()), Integer.valueOf(jsonObject.get("to").toString()));
+					//聊天记录
+					if (CommonUtil.allHistoryMessage.containsKey(oneToOneMessageKey)) {
+						list = CommonUtil.allHistoryMessage.get(oneToOneMessageKey);
+					}
+				} else { //全部记录
+					// 巴拉巴拉。。。。。。。。。。。
 
-        	Map<String,Object> oneToOneHistoryMessage = new HashMap<>();
-     		oneToOneHistoryMessage.put("id", "");
-     		oneToOneHistoryMessage.put("type", 3);
-     		oneToOneHistoryMessage.put("data", JSON.toJSONString(list));
-     		ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(oneToOneHistoryMessage)));
-        }else if("4".equals(type)) { // 客户端告知已读此消息
-        	//置为0条未读消息
-			CommonUtil.unreadHistoryMessage.put(CommonUtil.getOneToOneUnReadMessageKey(Integer.valueOf(jsonObject.get("from").toString()),Integer.valueOf(jsonObject.get("to").toString())),0);
-        }else if("5".equals(type)) {
-        	// 用户下线通知，这里没有客户端向服务器发送5请求
-			// 是zookeeper 监测到 zk上有节点变化后 触发一次 从redis中获取最新在线用户列表并推送到其他用户的聊天界面
-        }else if("6".equals(type)) {
-			// 这里客户端发送心跳时 会带上自己的userId和sessionId  可以在这里验证一下
-			Map<String,Object> pongToClient = new HashMap<>();
-			pongToClient.put("id", "pongTo6");
-			pongToClient.put("type", 6);
-			pongToClient.put("stauts", true);
-			ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(pongToClient)));
+				}
+				//置为0条未读消息
+				CommonUtil.unreadHistoryMessage.put(CommonUtil.getOneToOneUnReadMessageKey(Integer.valueOf(jsonObject.get("to").toString()), Integer.valueOf(jsonObject.get("from").toString())), 0);
+
+				Map<String, Object> oneToOneHistoryMessage = new HashMap<>();
+				oneToOneHistoryMessage.put("id", "");
+				oneToOneHistoryMessage.put("type", 3);
+				oneToOneHistoryMessage.put("data", JSON.toJSONString(list));
+				ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(oneToOneHistoryMessage)));
+			} else if ("4".equals(type)) { // 客户端告知已读此消息
+				//置为0条未读消息
+				CommonUtil.unreadHistoryMessage.put(CommonUtil.getOneToOneUnReadMessageKey(Integer.valueOf(jsonObject.get("from").toString()), Integer.valueOf(jsonObject.get("to").toString())), 0);
+			} else if ("5".equals(type)) {
+				// 用户下线通知，这里没有客户端向服务器发送5请求
+				// 是zookeeper 监测到 zk上有节点变化后 触发一次 从redis中获取最新在线用户列表并推送到其他用户的聊天界面
+			} else if ("6".equals(type)) {
+				// 这里客户端发送心跳时 会带上自己的userId和sessionId  可以在这里验证一下
+				Map<String, Object> pongToClient = new HashMap<>();
+				pongToClient.put("id", "pongTo6");
+				pongToClient.put("type", 6);
+				pongToClient.put("stauts", true);
+				ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(pongToClient)));
+			}
+			/**
+			 * 聊天业务逻辑处理结束
+			 */
 		}
 	}
 
@@ -224,7 +316,7 @@ public class WebSocketServerHandler extends BaseWebSocketServerHandler {
 			String userId = (String)jsonObject.get("userId").toString();
 			//先不写
 			CommonUtil.print("客户端连接成功，上线用户id为："+userId);
-			push(ctx, "服务器收到并返回：连接成功！@！@！@！@");
+			push(ctx, "服务器收到并返回：连接成功！");
 			//websocket连接校验  结束
 			
 			//加入列表
