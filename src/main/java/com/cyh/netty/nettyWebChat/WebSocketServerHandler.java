@@ -1,7 +1,6 @@
 package com.cyh.netty.nettyWebChat;
 
 import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.cyh.netty.constant.ConstantValue;
 import com.cyh.netty.entity.fileTransfer.NettyFileProtocol;
@@ -10,6 +9,7 @@ import com.cyh.netty.nettyFileTransferClient.NettyClient;
 import com.cyh.netty.util.CommonUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler.Sharable;
@@ -22,7 +22,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.nio.ByteBuffer;
 import java.util.*;
 
 /**
@@ -36,8 +35,6 @@ public class WebSocketServerHandler extends BaseWebSocketServerHandler {
 
 	private WebSocketServerHandshaker handshaker;
 
-	//文件中转集合
-	private static Map<String,byte[]>  bufTransfer = new HashMap<>();
 	// byte[] 数据集合
 	private List<byte[]> tempByteBuf = new ArrayList<>();
 
@@ -111,19 +108,82 @@ public class WebSocketServerHandler extends BaseWebSocketServerHandler {
 				tempByteBuf.add(bytes);
 				return;
 			}
+			tempByteBuf.clear();
 			// 只需要一次发送二进制文件就可以发送完成 ，说明此次数据包比较小
-			CommonUtil.print("ContinuationWebSocketFrame接收到的最终数据为+++++++++"+bytes.length);
-			String fileKey = UUID.randomUUID().toString();
-			CommonUtil.print("接收到客户端发来的数据包大小："+bytes.length);
-			bufTransfer.put(fileKey,bytes);
-			Map<String,Object> fileStruts = new HashMap<>();
-			fileStruts.put("id", "7");
-			fileStruts.put("type", 7);
-			fileStruts.put("stauts", true);
-			fileStruts.put("fileKey", fileKey); //fileKey 是暂时保存在内存中的文件流的key
-			ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(fileStruts)));
-			return;
+			CommonUtil.print("BinaryWebSocketFrame接收到的最终数据为+++++++++"+bytes.length);
+			String [] head = null;
+			byte [] sendPicData = null;
+			Map<String, Object> sendPicStruts = new HashMap<>();
+			try{
+				byte headLength = bytes[0]; //报文第一位是报文头大小
+				String res = new String(Arrays.copyOfRange(bytes, 1, headLength+1),"UTF-8");
+				head = res.split(",");
+				if(head.length != 6){
+					System.out.println("报错");
+					sendPicStruts.put("sendPicStruts", false);
+					sendPicStruts.put("sendPicAddress", "报文有误！请重试！");
+					ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(sendPicStruts))); //告知发送者 发送状态
+					return;
+				}
+				sendPicData = Arrays.copyOfRange(bytes, headLength+1, bytes.length);
+				CommonUtil.print("BinaryWebSocketFrame接收到的最终数据为+++++++++"+sendPicData.length);
+			}catch (Exception e){
+				e.printStackTrace();
+				sendPicStruts.put("sendPicStruts", false);
+				sendPicStruts.put("sendPicAddress", "报文有误！请重试！");
+				ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(sendPicStruts))); //告知发送者 发送状态
+				return;
+			}
 
+			try {
+				String fileName = head[0]+"_"+head[1]+"_"+head[3]+"_"+head[4]+"."+head[5];
+				NettyFileProtocol nfp = new NettyFileProtocol(sendPicData.length, 2,
+						Integer.valueOf(head[0]), Integer.valueOf(head[1]), Long.valueOf(head[3]),
+						sendPicData, Integer.valueOf(head[4]), head[5], false);
+
+				Channel channel = nettyClient.channelFuture.channel();
+
+				//方式二：采用监听channel机制
+				ChannelFuture await = channel.writeAndFlush(nfp);
+				String[] finalHead = head;
+				await.addListener((ChannelFutureListener) future -> {
+					if(future.isSuccess()){ // 发送成功
+						sendPicStruts.put("id", finalHead[4]);
+						sendPicStruts.put("type", 7);
+						sendPicStruts.put("sendPicStruts", true);
+						sendPicStruts.put("sendPicAddress", staticMessageFilePath+fileName);
+						// 发给目标用户
+						OneToOneMessage oneToOneMessage = new OneToOneMessage();
+						oneToOneMessage.setId(fileName);
+						oneToOneMessage.setMsgType("2");
+						oneToOneMessage.setFrom(Integer.valueOf(finalHead[0]));
+						oneToOneMessage.setTo(Integer.valueOf(finalHead[1]));
+						oneToOneMessage.setData(staticMessageFilePath+fileName); // 发送给目标用户的是ngixn静态文件服务器上的图片地址
+						oneToOneMessage.setDate(CommonUtil.DateToString(new Date(), ConstantValue.DATE_FORMAT));
+						if (CommonUtil.pushCtxMap.containsKey(oneToOneMessage.getTo().toString())) {//找到目标用户
+							push(CommonUtil.pushCtxMap.get(oneToOneMessage.getTo().toString()), JSON.toJSONString(oneToOneMessage));//给目标用户发送消息
+						} else {//不在线
+							CommonUtil.print("消息发送的目标用户不在线！");
+						}
+						//加入未读集合
+						CommonUtil.addunreadHistoryMessage(oneToOneMessage);
+						//加入聊天历史集合
+						CommonUtil.addAllHistoryMessage(oneToOneMessage);
+						ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(sendPicStruts))); //告知发送者 发送状态
+					}else{
+						future.cause().printStackTrace(); //向文件服务器发送文件 发送失败了
+					}
+				});
+
+			} catch (Exception e) {
+				e.printStackTrace();
+				sendPicStruts.put("sendPicStruts", false);
+				sendPicStruts.put("sendPicAddress", "发送失败！");
+				ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(sendPicStruts))); //告知发送者 发送状态
+			}finally {
+
+			}
+			return;
         }else if(frame instanceof ContinuationWebSocketFrame){
 			ByteBuf content = frame.content();
 			byte[] bytes = new byte[content.readableBytes()];
@@ -134,24 +194,82 @@ public class WebSocketServerHandler extends BaseWebSocketServerHandler {
 			if (!frame.isFinalFragment()) {
 				return;
 			}
-			//合并为一个byte[]
-			byte[] allBytes = new byte[0];
-			for (byte[] _bytes:tempByteBuf) {
-				allBytes = ArrayUtils.addAll(allBytes,_bytes);
+			String [] head = null;
+			byte [] sendPicData = null;
+			Map<String, Object> sendPicStruts = new HashMap<>();
+			try{
+				//合并为一个byte[]
+				byte[] allBytes = new byte[0];
+				for (byte[] _bytes:tempByteBuf) {
+					allBytes = ArrayUtils.addAll(allBytes,_bytes);
+				}
+				byte headLength = allBytes[0]; //报文第一位是报文头大小
+				String res = new String(Arrays.copyOfRange(allBytes, 1, headLength+1),"UTF-8");
+				head = res.split(",");
+				if(head.length != 6){
+					System.out.println("报错");
+					sendPicStruts.put("sendPicStruts", false);
+					sendPicStruts.put("sendPicAddress", "报文有误！请重试！");
+					ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(sendPicStruts))); //告知发送者 发送状态
+					return;
+				}
+				sendPicData = Arrays.copyOfRange(allBytes, headLength+1, allBytes.length);
+				CommonUtil.print("清理前，byte集合为："+tempByteBuf.size()+"个");
+				CommonUtil.print("ContinuationWebSocketFrame接收到的最终数据为+++++++++"+sendPicData.length);
+			}catch (Exception e){
+				e.printStackTrace();
+				sendPicStruts.put("sendPicStruts", false);
+				sendPicStruts.put("sendPicAddress", "报文有误！请重试！");
+				ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(sendPicStruts))); //告知发送者 发送状态
+				return;
+			}finally {
+				tempByteBuf.clear();
 			}
+			try {
+				String fileName = head[0]+"_"+head[1]+"_"+head[3]+"_"+head[4]+"."+head[5];
+				NettyFileProtocol nfp = new NettyFileProtocol(sendPicData.length, 2,
+						Integer.valueOf(head[0]), Integer.valueOf(head[1]), Long.valueOf(head[3]),
+						sendPicData, Integer.valueOf(head[4]), head[5], false);
 
-			CommonUtil.print("清理前，byte集合为："+tempByteBuf.size()+"个");
-			tempByteBuf.clear();
-			CommonUtil.print("ContinuationWebSocketFrame接收到的最终数据为+++++++++"+allBytes.length);
-			String fileKey = UUID.randomUUID().toString();
-			CommonUtil.print("接收到客户端发来的数据包大小："+allBytes.length);
-			bufTransfer.put(fileKey,allBytes);
-			Map<String,Object> fileStruts = new HashMap<>();
-			fileStruts.put("id", "7");
-			fileStruts.put("type", 7);
-			fileStruts.put("stauts", true);
-			fileStruts.put("fileKey", fileKey); //fileKey 是暂时保存在内存中的文件流的key
-			ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(fileStruts)));
+				//方式一：await()此种方式会被阻塞，长时间阻塞 webSocket客户端会发送不了心跳而断线
+//							nettyClient.channelFuture.channel().writeAndFlush(nfp).await();
+				//方式二：采用监听channel机制
+				ChannelFuture await = nettyClient.channelFuture.channel().writeAndFlush(nfp);
+				String[] finalHead = head;
+				await.addListener((ChannelFutureListener) future -> {
+					if(future.isSuccess()){ // 发送成功
+						sendPicStruts.put("id", finalHead[4]);
+						sendPicStruts.put("type", 7);
+						sendPicStruts.put("sendPicStruts", true);
+						sendPicStruts.put("sendPicAddress", staticMessageFilePath+fileName);
+						// 发给目标用户
+						OneToOneMessage oneToOneMessage = new OneToOneMessage();
+						oneToOneMessage.setId(fileName);
+						oneToOneMessage.setMsgType("2");
+						oneToOneMessage.setFrom(Integer.valueOf(finalHead[0]));
+						oneToOneMessage.setTo(Integer.valueOf(finalHead[1]));
+						oneToOneMessage.setData(staticMessageFilePath+fileName); // 发送给目标用户的是ngixn静态文件服务器上的图片地址
+						oneToOneMessage.setDate(CommonUtil.DateToString(new Date(), ConstantValue.DATE_FORMAT));
+						//加入未读集合
+						CommonUtil.addunreadHistoryMessage(oneToOneMessage);
+						//加入聊天历史集合
+						CommonUtil.addAllHistoryMessage(oneToOneMessage);
+						ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(sendPicStruts))); //告知发送者 发送状态
+						if (CommonUtil.pushCtxMap.containsKey(oneToOneMessage.getTo().toString())) {//找到目标用户
+							push(CommonUtil.pushCtxMap.get(oneToOneMessage.getTo().toString()), JSON.toJSONString(oneToOneMessage));//给目标用户发送消息
+						} else {//不在线
+							CommonUtil.print("消息发送的目标用户不在线！");
+						}
+					}else{
+						future.cause().printStackTrace(); //向文件服务器发送文件 发送失败了
+					}
+				});
+			} catch (Exception e) {
+				e.printStackTrace();
+				sendPicStruts.put("sendPicStruts", false);
+				sendPicStruts.put("sendPicAddress", "发送失败！");
+				ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(sendPicStruts))); //告知发送者 发送状态
+			}
 			return;
 		}else if(frame instanceof TextWebSocketFrame) {
 			// 客服端发送过来的消息
@@ -166,11 +284,11 @@ public class WebSocketServerHandler extends BaseWebSocketServerHandler {
 				return;
 			}
 			// 返回应答消息
-			Map<String, Object> systemMsg = new HashMap<>();
+			/*Map<String, Object> systemMsg = new HashMap<>();
 			systemMsg.put("id", "system");
 			systemMsg.put("type", -1);
 			systemMsg.put("data", "服务器收到并返回了你发送的JSON：" + request);
-			ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(systemMsg)));
+			ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(systemMsg)));*/
 
 			/**
 			 * 聊天业务逻辑处理开始
@@ -183,10 +301,10 @@ public class WebSocketServerHandler extends BaseWebSocketServerHandler {
 				oneToOneMessage.setMsgType(msgType);
 				oneToOneMessage.setFrom(Integer.valueOf(jsonObject.get("from").toString()));
 				oneToOneMessage.setTo(Integer.valueOf(jsonObject.get("to").toString()));
-				oneToOneMessage.setDate(CommonUtil.DateToString(new Date(), ConstantValue.DATE_FORMAT));
 				switch (msgType) {
 					case "0":  //文本消息
 					case "1":  //表情消息
+						oneToOneMessage.setDate(CommonUtil.DateToString(new Date(), ConstantValue.DATE_FORMAT));
 						oneToOneMessage.setData(jsonObject.get("data").toString());
 						if (CommonUtil.pushCtxMap.containsKey(oneToOneMessage.getTo().toString())) {//找到目标用户
 							push(CommonUtil.pushCtxMap.get(oneToOneMessage.getTo().toString()), JSON.toJSONString(oneToOneMessage));
@@ -199,42 +317,7 @@ public class WebSocketServerHandler extends BaseWebSocketServerHandler {
 						CommonUtil.addAllHistoryMessage(oneToOneMessage);
 						break;
 					case "2": //图片消息
-						Map<String, Object> sendPicStruts = new HashMap<>();
-						try {
-							String fileName = jsonObject.get("id").toString();
-							String fileKey = jsonObject.get("fileKey").toString();
-							JSONArray data = (JSONArray) jsonObject.get("data");
-							byte[] fileSource = bufTransfer.get(fileKey);
-							CommonUtil.print("即将发送的数据包大小为：" + fileSource.length);
-							NettyFileProtocol nfp = new NettyFileProtocol(fileSource.length, 2,
-									Integer.valueOf(data.get(0).toString()), Integer.valueOf(data.get(1).toString()), (Long)data.get(2),
-									fileSource, Integer.valueOf((int)data.get(3)), data.get(4).toString(), false);
-							nettyClient.channelFuture.channel().writeAndFlush(nfp);
-							// 清空缓存中的数据 释放内存
-							bufTransfer.remove(fileKey);
-							sendPicStruts.put("id", data.get(3).toString());
-							sendPicStruts.put("type", 8);
-							sendPicStruts.put("sendPicStruts", true);
-							sendPicStruts.put("sendPicAddress", staticMessageFilePath+fileName);
-
-							// 发给目标用户
-							oneToOneMessage.setData(staticMessageFilePath+fileName); // 发送给目标用户的是ngixn静态文件服务器上的图片地址
-							if (CommonUtil.pushCtxMap.containsKey(oneToOneMessage.getTo().toString())) {//找到目标用户
-								push(CommonUtil.pushCtxMap.get(oneToOneMessage.getTo().toString()), JSON.toJSONString(oneToOneMessage));
-							} else {//不在线
-								CommonUtil.print("消息发送的目标用户不在线！");
-							}
-							//加入未读集合
-							CommonUtil.addunreadHistoryMessage(oneToOneMessage);
-							//加入聊天历史集合
-							CommonUtil.addAllHistoryMessage(oneToOneMessage);
-						} catch (Exception e) {
-							e.printStackTrace();
-							sendPicStruts.put("sendPicStruts", false);
-							sendPicStruts.put("sendPicAddress", null);
-						}finally {
-							ctx.channel().write(new TextWebSocketFrame(JSON.toJSONString(sendPicStruts)));
-						}
+						// 图片消息是二进制消息  走的是 BinaryWebSocketFrame 或者 ContinuationWebSocketFrame
 						break;
 				}
 			} else if ("3".equals(type)) { //客户端要求拉取一对一聊天记录
