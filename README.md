@@ -1,4 +1,4 @@
-# NettyWebCaht
+# NettyWebCt
 
 webChat-使用netty实现了webSocek实时聊天（新版webSocket）和作为客户端进行文件传输(与[netty-server](https://github.com/a878804506/netty-server)相辅相成)
 
